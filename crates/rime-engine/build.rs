@@ -65,6 +65,7 @@ fn try_find_and_link() -> bool {
         // Linux — default system/lib directories
         "/usr/lib",
         "/usr/lib/x86_64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",
         "/usr/local/lib",
         // macOS — Homebrew
         "/usr/local/lib",
@@ -94,6 +95,8 @@ fn try_find_and_link() -> bool {
     // Also check via pkg-config.
     if pkg_config::Config::new()
         .atleast_version("1.0")
+        .cargo_metadata(true)
+        .print_system_libs(true)
         .probe("rime")
         .is_ok()
     {
@@ -106,11 +109,18 @@ fn try_find_and_link() -> bool {
 /// Generate FFI bindings using bindgen (requires librime headers).
 #[cfg(feature = "bindgen")]
 fn generate_bindgen() {
-    let include_dir = std::env::var("RIME_INCLUDE_DIR")
-        .unwrap_or_else(|_| "/usr/include".into());
+    let include_dir = std::env::var("RIME_INCLUDE_DIR").unwrap_or_else(|_| {
+        // Try common rime_api.h locations.
+        for dir in &["/usr/include", "/usr/local/include", "/opt/homebrew/include"] {
+            if std::path::Path::new(dir).join("rime_api.h").exists() {
+                return dir.to_string();
+            }
+        }
+        "/usr/include".into()
+    });
 
     let bindings = bindgen::Builder::default()
-        .header(format!("{}/rime.h", include_dir))
+        .header(format!("{}/rime_api.h", include_dir))
         .allowlist_function("Rime.*")
         .allowlist_type("Rime.*")
         .generate()
