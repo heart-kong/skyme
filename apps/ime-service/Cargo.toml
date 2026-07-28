@@ -1,0 +1,27 @@
+[package]
+name = "skyme-ime-service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyme-common = { path = "../../crates/common" }
+skyme-ime-core = { path = "../../crates/ime-core" }
+skyme-candidate-ui = { path = "../../crates/candidate-ui" }
+skyme-renderer = { path = "../../crates/renderer" }
+skyme-rime-engine = { path = "../../crates/rime-engine" }
+skyme-config = { path = "../../crates/config" }
+skyme-settings = { path = "../../crates/settings" }
+skyme-plugins = { path = "../../crates/plugins" }
+skyme-diagnostics = { path = "../../crates/diagnostics" }
+log = "0.4"
+env_logger = "0.11"
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_TextServices",
+    "Win32_System_Com",
+] }

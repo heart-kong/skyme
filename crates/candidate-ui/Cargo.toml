@@ -1,0 +1,10 @@
+[package]
+name = "skyme-candidate-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyme-common = { path = "../common" }
+skyme-renderer = { path = "../renderer" }
+skyme-rime-engine = { path = "../rime-engine" }
+log = "0.4"

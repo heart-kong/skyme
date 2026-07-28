@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/common",
+    "crates/rime-engine",
+    "crates/ime-core",
+    "crates/candidate-ui",
+    "crates/renderer",
+    "crates/settings",
+    "crates/config",
+    "crates/plugins",
+    "crates/diagnostics",
+    "apps/ime-service",
+    "apps/settings-ui",
+    "apps/deploy",
+]

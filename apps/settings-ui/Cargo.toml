@@ -1,0 +1,10 @@
+[package]
+name = "skyme-settings-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyme-common = { path = "../../crates/common" }
+skyme-settings = { path = "../../crates/settings" }
+skyme-config = { path = "../../crates/config" }
+log = "0.4"

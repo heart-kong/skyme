@@ -1,0 +1,7 @@
+/target
+*.log
+*.pdb
+*.user
+*.suo
+.DS_Store
+Thumbs.db

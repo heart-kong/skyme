@@ -1,0 +1,18 @@
+[package]
+name = "skyme-ime-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyme-common = { path = "../common" }
+skyme-rime-engine = { path = "../rime-engine" }
+log = "0.4"
+thiserror = "1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_TextServices",
+    "Win32_System_Com",
+    "Win32_UI_WindowsAndMessaging",
+] }

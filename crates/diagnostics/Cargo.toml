@@ -1,0 +1,11 @@
+[package]
+name = "skyme-diagnostics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyme-common = { path = "../common" }
+skyme-ime-core = { path = "../ime-core" }
+skyme-candidate-ui = { path = "../candidate-ui" }
+skyme-rime-engine = { path = "../rime-engine" }
+log = "0.4"

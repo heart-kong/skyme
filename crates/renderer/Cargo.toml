@@ -1,0 +1,19 @@
+[package]
+name = "skyme-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyme-common = { path = "../common" }
+log = "0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Dxgi",
+    "Win32_System_Com",
+    "Win32_UI_WindowsAndMessaging",
+] }

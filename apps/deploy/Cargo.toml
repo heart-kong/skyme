@@ -1,0 +1,10 @@
+[package]
+name = "skyme-deploy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyme-common = { path = "../../crates/common" }
+skyme-rime-engine = { path = "../../crates/rime-engine" }
+log = "0.4"
+env_logger = "0.11"
