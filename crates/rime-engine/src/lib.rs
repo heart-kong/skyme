@@ -7,8 +7,7 @@ pub mod schema;
 pub mod deploy;
 pub mod candidate;
 
-pub use engine::{Engine, KeyProcessResult};
-pub use engine::{SessionContext, CommitText, SessionStatus};
+pub use engine::{Engine, KeyProcessResult, SessionContext, CommitText, SessionStatus};
 pub use session::Session;
 pub use schema::SchemaInfo;
 pub use candidate::CandidateList;

@@ -1,325 +1,94 @@
-//! Raw FFI declarations matching librime's `rime.h`.
+//! FFI declarations for librime.
 //!
-//! These mirror the C API exactly. Use `raw.rs` for safe wrappers.
-//! Struct definitions match librime commit e3a8f6b (1.x API).
+//! Contains C struct definitions and a [`RimeApi`] struct that holds
+//! function pointers loaded at runtime via `libloading`.
 
-pub use std::ffi::c_char;
+use libloading::Library;
+use std::ffi::c_char;
+use std::sync::Arc;
 
-// ── RimeTraits  (initialization configuration) ──────────────────────────────
+include!("ffi_structs.rs.in");
 
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeTraits {
-    pub data_size: i32,
-    pub shared_data_dir: *const c_char,
-    pub user_data_dir: *const c_char,
-    pub distribution_name: *const c_char,
-    pub distribution_code_name: *const c_char,
-    pub distribution_version: *const c_char,
-    pub app_name: *const c_char,
-    pub reserved: [*const c_char; 8usize],
+/// Runtime-loaded librime API.
+pub struct RimeApi {
+    pub(crate) _lib: Arc<Library>,
+    pub RimeSetupLogging: unsafe extern "C" fn(),
+    pub RimeInitialize: unsafe extern "C" fn(*const RimeTraits) -> bool,
+    pub RimeFinalize: unsafe extern "C" fn(),
+    pub RimeStartMaintenance: unsafe extern "C" fn(bool) -> bool,
+    pub RimeCreateSession: unsafe extern "C" fn() -> u64,
+    pub RimeFindSession: unsafe extern "C" fn(u64) -> bool,
+    pub RimeDestroySession: unsafe extern "C" fn(u64),
+    pub RimeCleanupStaleSessions: unsafe extern "C" fn(),
+    pub RimeCleanupAllSessions: unsafe extern "C" fn(),
+    pub RimeProcessKey: unsafe extern "C" fn(u64, i32, i32) -> bool,
+    pub RimeCommitComposition: unsafe extern "C" fn(u64),
+    pub RimeClearComposition: unsafe extern "C" fn(u64),
+    pub RimeGetContext: unsafe extern "C" fn(u64, *mut RimeContext) -> bool,
+    pub RimeFreeContext: unsafe extern "C" fn(*mut RimeContext),
+    pub RimeGetCommit: unsafe extern "C" fn(u64, *mut RimeCommit) -> bool,
+    pub RimeFreeCommit: unsafe extern "C" fn(*mut RimeCommit),
+    pub RimeGetStatus: unsafe extern "C" fn(u64, *mut RimeStatus) -> bool,
+    pub RimeFreeStatus: unsafe extern "C" fn(*mut RimeStatus),
+    pub RimeSelectCandidate: unsafe extern "C" fn(u64, i32) -> bool,
+    pub RimeCandidateListFromIndex: unsafe extern "C" fn(u64, i32, *mut RimeCandidateList) -> bool,
+    pub RimeFreeCandidateList: unsafe extern "C" fn(*mut RimeCandidateList),
+    pub RimeSetOption: unsafe extern "C" fn(u64, *const c_char, bool) -> bool,
+    pub RimeGetOption: unsafe extern "C" fn(u64, *const c_char) -> bool,
+    pub RimeGetSchemaList: unsafe extern "C" fn(*mut RimeSchemaList) -> bool,
+    pub RimeFreeSchemaList: unsafe extern "C" fn(*mut RimeSchemaList),
+    pub RimeGetSchemaById: unsafe extern "C" fn(*const c_char) -> bool,
+    pub RimeSelectSchema: unsafe extern "C" fn(u64, *const c_char) -> bool,
+    pub RimeCurrentSchema: unsafe extern "C" fn(u64, *mut RimeSchema) -> bool,
+    pub RimeGetPreedit: unsafe extern "C" fn(u64, *mut RimePreedit) -> bool,
+    pub RimeFreePreedit: unsafe extern "C" fn(*mut RimePreedit),
+    pub RimeDeployer_Initialize: unsafe extern "C" fn(*const RimeTraits) -> bool,
+    pub RimeDeployer_Shutdown: unsafe extern "C" fn(),
+    pub RimeDeployer_StartMaintenance: unsafe extern "C" fn(bool),
+    pub RimeDeployer_IsMaintenanceRunning: unsafe extern "C" fn() -> bool,
+    pub RimeDeployer_JoinMaintenanceThread: unsafe extern "C" fn(),
 }
 
-impl RimeTraits {
-    pub fn new(
-        shared_data_dir: *const c_char,
-        user_data_dir: *const c_char,
-        distribution_name: *const c_char,
-    ) -> Self {
-        Self {
-            data_size: size_of::<RimeTraits>() as i32,
-            shared_data_dir,
-            user_data_dir,
-            distribution_name,
-            distribution_code_name: std::ptr::null(),
-            distribution_version: std::ptr::null(),
-            app_name: std::ptr::null(),
-            reserved: [std::ptr::null(); 8],
-        }
+impl RimeApi {
+    pub unsafe fn new(lib: Arc<Library>) -> Result<Self, libloading::Error> {
+        macro_rules! load { ($lib:expr, $name:ident) => { $lib.get(stringify!($name).as_bytes()).map(|s| *s)? }; }
+        Ok(Self {
+            _lib: lib.clone(),
+            RimeSetupLogging: load!(lib, RimeSetupLogging),
+            RimeInitialize: load!(lib, RimeInitialize),
+            RimeFinalize: load!(lib, RimeFinalize),
+            RimeStartMaintenance: load!(lib, RimeStartMaintenance),
+            RimeCreateSession: load!(lib, RimeCreateSession),
+            RimeFindSession: load!(lib, RimeFindSession),
+            RimeDestroySession: load!(lib, RimeDestroySession),
+            RimeCleanupStaleSessions: load!(lib, RimeCleanupStaleSessions),
+            RimeCleanupAllSessions: load!(lib, RimeCleanupAllSessions),
+            RimeProcessKey: load!(lib, RimeProcessKey),
+            RimeCommitComposition: load!(lib, RimeCommitComposition),
+            RimeClearComposition: load!(lib, RimeClearComposition),
+            RimeGetContext: load!(lib, RimeGetContext),
+            RimeFreeContext: load!(lib, RimeFreeContext),
+            RimeGetCommit: load!(lib, RimeGetCommit),
+            RimeFreeCommit: load!(lib, RimeFreeCommit),
+            RimeGetStatus: load!(lib, RimeGetStatus),
+            RimeFreeStatus: load!(lib, RimeFreeStatus),
+            RimeSelectCandidate: load!(lib, RimeSelectCandidate),
+            RimeCandidateListFromIndex: load!(lib, RimeCandidateListFromIndex),
+            RimeFreeCandidateList: load!(lib, RimeFreeCandidateList),
+            RimeSetOption: load!(lib, RimeSetOption),
+            RimeGetOption: load!(lib, RimeGetOption),
+            RimeGetSchemaList: load!(lib, RimeGetSchemaList),
+            RimeFreeSchemaList: load!(lib, RimeFreeSchemaList),
+            RimeGetSchemaById: load!(lib, RimeGetSchemaById),
+            RimeSelectSchema: load!(lib, RimeSelectSchema),
+            RimeCurrentSchema: load!(lib, RimeCurrentSchema),
+            RimeGetPreedit: load!(lib, RimeGetPreedit),
+            RimeFreePreedit: load!(lib, RimeFreePreedit),
+            RimeDeployer_Initialize: load!(lib, RimeDeployer_Initialize),
+            RimeDeployer_Shutdown: load!(lib, RimeDeployer_Shutdown),
+            RimeDeployer_StartMaintenance: load!(lib, RimeDeployer_StartMaintenance),
+            RimeDeployer_IsMaintenanceRunning: load!(lib, RimeDeployer_IsMaintenanceRunning),
+            RimeDeployer_JoinMaintenanceThread: load!(lib, RimeDeployer_JoinMaintenanceThread),
+        })
     }
-}
-
-// ── RimeContext / Composition / Candidates ──────────────────────────────────
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeContext {
-    pub data_size: i32,
-    pub composition: RimeComposition,
-    pub commit_text_preview: *mut c_char,
-    pub select_labels: *mut *mut c_char,
-    pub select_label_count: i32,
-}
-
-impl Default for RimeContext {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimeContext>() as i32,
-            composition: RimeComposition::default(),
-            commit_text_preview: std::ptr::null_mut(),
-            select_labels: std::ptr::null_mut(),
-            select_label_count: 0,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeComposition {
-    pub length: i32,
-    pub cursor_pos: i32,
-    pub sel_start: i32,
-    pub sel_end: i32,
-    pub preedit: *mut c_char,
-    pub cand: RimeCandidateList,
-}
-
-impl Default for RimeComposition {
-    fn default() -> Self {
-        Self {
-            length: 0,
-            cursor_pos: 0,
-            sel_start: 0,
-            sel_end: 0,
-            preedit: std::ptr::null_mut(),
-            cand: RimeCandidateList::default(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeCandidateList {
-    pub data_size: i32,
-    pub length: i32,
-    pub candidate_index: i32,
-    pub candidates: *mut RimeCandidate,
-    pub page_size: i32,
-    pub page_no: i32,
-    pub is_last_page: bool,
-    pub is_complete: bool,
-    pub select_keys: *mut c_char,
-    pub current_page_start: i32,
-}
-
-impl Default for RimeCandidateList {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimeCandidateList>() as i32,
-            length: 0,
-            candidate_index: 0,
-            candidates: std::ptr::null_mut(),
-            page_size: 5,
-            page_no: 0,
-            is_last_page: true,
-            is_complete: true,
-            select_keys: std::ptr::null_mut(),
-            current_page_start: 0,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeCandidate {
-    pub data_size: i32,
-    pub text: *mut c_char,
-    pub comment: *mut c_char,
-}
-
-impl Default for RimeCandidate {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimeCandidate>() as i32,
-            text: std::ptr::null_mut(),
-            comment: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeCommit {
-    pub data_size: i32,
-    pub text: *mut c_char,
-}
-
-impl Default for RimeCommit {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimeCommit>() as i32,
-            text: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeStatus {
-    pub data_size: i32,
-    pub schema_id: *mut c_char,
-    pub schema_name: *mut c_char,
-    pub is_disabled: bool,
-    pub is_composing: bool,
-    pub is_ascii_mode: bool,
-    pub is_full_shape: bool,
-    pub is_simplified: bool,
-    pub is_traditional: bool,
-    pub is_ascii_punct: bool,
-}
-
-impl Default for RimeStatus {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimeStatus>() as i32,
-            schema_id: std::ptr::null_mut(),
-            schema_name: std::ptr::null_mut(),
-            is_disabled: false,
-            is_composing: false,
-            is_ascii_mode: false,
-            is_full_shape: false,
-            is_simplified: false,
-            is_traditional: false,
-            is_ascii_punct: false,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeSchema {
-    pub data_size: i32,
-    pub schema_id: *mut c_char,
-    pub name: *mut c_char,
-    pub reserved: *mut c_char,
-}
-
-impl Default for RimeSchema {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimeSchema>() as i32,
-            schema_id: std::ptr::null_mut(),
-            name: std::ptr::null_mut(),
-            reserved: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeSchemaList {
-    pub data_size: i32,
-    pub length: i32,
-    pub schemas: *mut RimeSchemaListItem,
-}
-
-impl Default for RimeSchemaList {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimeSchemaList>() as i32,
-            length: 0,
-            schemas: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimeSchemaListItem {
-    pub schema: RimeSchema,
-    pub next: *mut RimeSchemaListItem,
-}
-
-impl Default for RimeSchemaListItem {
-    fn default() -> Self {
-        Self {
-            schema: RimeSchema::default(),
-            next: std::ptr::null_mut(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct RimePreedit {
-    pub data_size: i32,
-    pub length: i32,
-    pub cursor_pos: i32,
-    pub sel_start: i32,
-    pub sel_end: i32,
-    pub preedit: *mut c_char,
-}
-
-impl Default for RimePreedit {
-    fn default() -> Self {
-        Self {
-            data_size: size_of::<RimePreedit>() as i32,
-            length: 0,
-            cursor_pos: 0,
-            sel_start: 0,
-            sel_end: 0,
-            preedit: std::ptr::null_mut(),
-        }
-    }
-}
-
-// ── extern "C" functions ────────────────────────────────────────────────────
-//
-// These are resolved at link time against librime (rime.dll / librime.so / librime.dylib).
-// Without librime linked, `cargo build` will fail, but `cargo check` succeeds
-// since it does not run the linker.
-
-extern "C" {
-    // ── lifecycle ──
-    pub fn RimeSetupLogging();
-    pub fn RimeInitialize(traits: *const RimeTraits) -> bool;
-    pub fn RimeFinalize();
-    pub fn RimeStartMaintenance(full_check: bool) -> bool;
-
-    // ── sessions ──
-    pub fn RimeCreateSession() -> u64;
-    pub fn RimeFindSession(session_id: u64) -> bool;
-    pub fn RimeDestroySession(session_id: u64);
-    pub fn RimeCleanupStaleSessions();
-    pub fn RimeCleanupAllSessions();
-
-    // ── key processing ──
-    pub fn RimeProcessKey(session_id: u64, keycode: i32, modifiers: i32) -> bool;
-    pub fn RimeCommitComposition(session_id: u64);
-    pub fn RimeClearComposition(session_id: u64);
-
-    // ── context / commit / status ──
-    pub fn RimeGetContext(session_id: u64, ctx: *mut RimeContext) -> bool;
-    pub fn RimeFreeContext(ctx: *mut RimeContext);
-    pub fn RimeGetCommit(session_id: u64, commit: *mut RimeCommit) -> bool;
-    pub fn RimeFreeCommit(commit: *mut RimeCommit);
-    pub fn RimeGetStatus(session_id: u64, status: *mut RimeStatus) -> bool;
-    pub fn RimeFreeStatus(status: *mut RimeStatus);
-
-    // ── candidates ──
-    pub fn RimeSelectCandidate(session_id: u64, index: i32) -> bool;
-    pub fn RimeCandidateListFromIndex(session_id: u64, index: i32, list: *mut RimeCandidateList) -> bool;
-    pub fn RimeFreeCandidateList(list: *mut RimeCandidateList);
-
-    // ── options ──
-    pub fn RimeSetOption(session_id: u64, option: *const c_char, value: bool) -> bool;
-    pub fn RimeGetOption(session_id: u64, option: *const c_char) -> bool;
-
-    // ── schema ──
-    pub fn RimeGetSchemaList(list: *mut RimeSchemaList) -> bool;
-    pub fn RimeFreeSchemaList(list: *mut RimeSchemaList);
-    pub fn RimeGetSchemaById(schema_id: *const c_char) -> bool;
-    pub fn RimeSelectSchema(session_id: u64, schema_id: *const c_char) -> bool;
-    pub fn RimeCurrentSchema(session_id: u64, schema: *mut RimeSchema) -> bool;
-
-    // ── preedit ──
-    pub fn RimeGetPreedit(session_id: u64, preedit: *mut RimePreedit) -> bool;
-    pub fn RimeFreePreedit(preedit: *mut RimePreedit);
-
-    // ── deployer ──
-    pub fn RimeDeployer_Initialize(traits: *const RimeTraits) -> bool;
-    pub fn RimeDeployer_Shutdown();
-    pub fn RimeDeployer_StartMaintenance(full_check: bool);
-    pub fn RimeDeployer_IsMaintenanceRunning() -> bool;
-    pub fn RimeDeployer_JoinMaintenanceThread();
 }

@@ -7,16 +7,10 @@ edition = "2021"
 skyme-common = { path = "../common" }
 bitflags = "2"
 log = "0.4"
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = [
-    "Win32_Foundation",
-] }
+libloading = "0.8"
 
 [build-dependencies]
 pkg-config = "0.3"
-
-# bindgen is only needed when RIME_USE_BINDGEN env var is set
 bindgen = { version = "0.70", optional = true }
 
 [features]

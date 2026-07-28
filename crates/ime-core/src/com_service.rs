@@ -1,13 +1,9 @@
 //! Skyme TSF text service — the COM object that Windows TSF loads.
-//!
-//! This module implements `ITfTextInputProcessor` and related COM interfaces.
-//! On non-Windows platforms, it provides a stub that compiles but does nothing.
 
+use crate::composition::CompositionManager;
+use crate::keyevent::KeyEvent;
+use crate::threadmgr::ThreadManager;
 
-/// The main Skyme TSF text service COM object.
-///
-/// This is the entry point that Windows TSF calls into.
-/// It implements `ITfTextInputProcessor` and `ITfKeyEventSink`.
 #[cfg(target_os = "windows")]
 pub struct SkymeTextService {
     thread_mgr: ThreadManager,
@@ -19,25 +15,17 @@ pub struct SkymeTextService {
 #[cfg(target_os = "windows")]
 impl SkymeTextService {
     pub fn new() -> Self {
-        Self {
-            thread_mgr: ThreadManager::new(),
-            composition: CompositionManager::new(),
-            client_id: 0,
-            activated: false,
-        }
+        Self { thread_mgr: ThreadManager::new(), composition: CompositionManager::new(), client_id: 0, activated: false }
     }
 
-    /// `ITfTextInputProcessor::Activate` — called by TSF when the service is loaded.
-    pub fn activate(&mut self, ptim: *const std::ffi::c_void, tid: u32) -> Result<(), crate::ImeError> {
+    pub fn activate(&mut self, _ptim: *const std::ffi::c_void, tid: u32) -> Result<(), crate::ImeError> {
         log::info!("Skyme TSF activating (client_id={})", tid);
-        // In a real build: ptim is ITfThreadMgr*, call QueryInterface, register sinks.
         self.client_id = tid;
-        self.thread_mgr.activate_with(tid)?;
+        self.thread_mgr.activate_with(tid).map_err(|e| crate::ImeError::ActivationFailed(e))?;
         self.activated = true;
         Ok(())
     }
 
-    /// `ITfTextInputProcessor::Deactivate` — called by TSF when the service is unloaded.
     pub fn deactivate(&mut self) {
         if self.activated {
             log::info!("Skyme TSF deactivating");
@@ -46,10 +34,7 @@ impl SkymeTextService {
         }
     }
 
-    /// Handle a key down event. Called by the key event sink.
     pub fn on_key_down(&mut self, keycode: u32) -> bool {
-        let event = KeyEvent::new(keycode, Default::default(), true);
-        // TODO: Dispatch to rime-engine via event bus.
         log::debug!("Key down: {}", keycode);
         true
     }
@@ -74,4 +59,6 @@ impl SkymeTextService {
     pub fn on_key_down(&mut self, keycode: u32) -> bool { log::debug!("Key down (stub): {}", keycode); true }
     pub fn is_activated(&self) -> bool { true }
     pub fn client_id(&self) -> u32 { 0 }
+    pub fn thread_mgr(&self) -> &ThreadManager { unimplemented!() }
+    pub fn thread_mgr_mut(&mut self) -> &mut ThreadManager { unimplemented!() }
 }

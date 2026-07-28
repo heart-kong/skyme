@@ -1,281 +1,191 @@
 //! Safe Rust API for interacting with a librime engine instance.
 //!
-//! This is the primary entry point for all IME operations.
-//! All unsafe FFI calls are encapsulated within this module.
-//! Callers never touch raw pointers or C strings directly.
+//! Uses runtime dynamic loading (`libloading`) — no compile-time linking needed.
+//! librime (`rime.dll` / `librime.so` / `librime.dylib`) must be available at runtime
+//! in the library search path.
 
 use crate::candidate::CandidateList;
 use crate::error::{RimeError, RimeResult};
-use crate::ffi::RimeTraits;
+use crate::ffi::{RimeApi, RimeTraits};
 use crate::raw;
-use crate::ffi;
 use crate::schema::SchemaInfo;
 use crate::session::Session;
 use skyme_common::{Candidate, Modifiers};
 use std::ffi::CString;
+use std::sync::Arc;
 
 /// Whether a keypress was consumed by the engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyProcessResult {
-    /// Handled — do not pass the key to the application.
-    Handled,
-    /// Not handled — pass the key through to the application.
-    Passthrough,
-}
+pub enum KeyProcessResult { Handled, Passthrough }
 
-/// High-level, 100% safe API for interacting with a Rime engine instance.
+/// High-level safe API for interacting with a Rime engine instance.
 ///
-/// # Lifecycle
-///
-/// 1. `Engine::new()` — create a handle (engine not yet active).
-/// 2. `Engine::initialize(...)` — initialise librime (must succeed before any other call).
-/// 3. Use `create_session()`, `process_key()`, `get_context()`, etc.
-/// 4. `Engine::finalize()` — shut down librime (also called on Drop).
-///
-/// # Thread safety
-///
-/// librime is internally synchronized. `Engine` is `Send` but not `Sync`.
-/// The engine must be finalised on the same thread it was initialised on.
+/// librime is loaded dynamically via `libloading`. The library handle
+/// is kept alive for the lifetime of the `Engine`.
 pub struct Engine {
-    initialized: bool,
+    api: Option<Arc<RimeApi>>,
 }
 
 impl Engine {
-    /// Create a new uninitialised engine handle.
-    pub fn new() -> Self {
-        Self { initialized: false }
-    }
+    pub fn new() -> Self { Self { api: None } }
 
-    /// Initialise librime with the given data directories.
+    /// Load librime and initialise the engine.
     ///
-    /// This must succeed before any session-related operation.
-    /// Call exactly once — subsequent calls are no-ops.
-    ///
-    /// # Arguments
-    ///
-    /// * `shared_data_dir` — Path to Rime's shared data (schemas, dictionaries).  
-    ///   Usually `%APPDATA%\Rime` on Windows or `/usr/share/rime-data` on Linux.
-    /// * `user_data_dir` — Path to user-specific data (user.yaml, custom schemas).  
-    ///   Usually `%APPDATA%\Rime` on Windows or `~/.config/fcitx/rime` on Linux.
-    /// * `distribution_name` — Display name for this frontend, e.g. `"Skyme"`.
+    /// Searches for `rime.dll` / `librime.so` / `librime.dylib` in the library path
+    /// or in the directory specified by `rime_lib_dir`.
     pub fn initialize(
         &mut self,
         shared_data_dir: &str,
         user_data_dir: &str,
         distribution_name: &str,
     ) -> RimeResult<()> {
-        if self.initialized {
+        if self.api.is_some() {
             log::warn!("Rime engine already initialized");
             return Ok(());
         }
 
+        let lib = unsafe { libloading::Library::new("rime") }
+            .or_else(|_| unsafe { libloading::Library::new("librime") })
+            .or_else(|_| {
+                // Try with platform-specific names
+                #[cfg(target_os = "windows")]
+                { unsafe { libloading::Library::new("rime.dll") } }
+                #[cfg(not(target_os = "windows"))]
+                { unsafe { libloading::Library::new("librime.so.1") } }
+                    .or_else(|_| unsafe { libloading::Library::new("librime.dylib") })
+            })
+            .map_err(|e| RimeError::LibraryLoadFailed(e.to_string()))?;
+
+        let api = Arc::new(unsafe { RimeApi::new(Arc::new(lib)) }
+            .map_err(|e| RimeError::LibraryLoadFailed(e.to_string()))?);
+
         let shared_c = CString::new(shared_data_dir)?;
         let user_c = CString::new(user_data_dir)?;
         let dist_c = CString::new(distribution_name)?;
+        let traits = RimeTraits::new(shared_c.as_ptr(), user_c.as_ptr(), dist_c.as_ptr());
 
-        let traits = RimeTraits::new(
-            shared_c.as_ptr(),
-            user_c.as_ptr(),
-            dist_c.as_ptr(),
-        );
-
-        unsafe {
-            raw::setup_logging();
-            if !raw::initialize(&traits) {
-                return Err(RimeError::InitializeFailed);
-            }
+        unsafe { raw::setup_logging(&api); }
+        if !unsafe { raw::initialize(&api, &traits) } {
+            return Err(RimeError::InitializeFailed);
         }
 
-        self.initialized = true;
-        log::info!(
-            "Rime engine initialized: shared={}, user={}",
-            shared_data_dir,
-            user_data_dir
-        );
+        self.api = Some(api);
+        log::info!("Rime engine initialized (shared={}, user={})", shared_data_dir, user_data_dir);
         Ok(())
     }
 
-    /// Shut down librime and free all resources.
-    ///
-    /// Called automatically on `Drop`. Safe to call multiple times.
     pub fn finalize(&mut self) {
-        if self.initialized {
-            unsafe {
-                raw::finalize();
-            }
-            self.initialized = false;
+        if let Some(ref api) = self.api {
+            unsafe { raw::finalize(api); }
+            self.api = None;
             log::info!("Rime engine finalized");
         }
     }
 
-    /// Check whether the engine has been initialised.
-    pub fn is_initialized(&self) -> bool {
-        self.initialized
+    pub fn is_initialized(&self) -> bool { self.api.is_some() }
+
+    fn api(&self) -> RimeResult<&RimeApi> {
+        self.api.as_deref().ok_or(RimeError::NotInitialized)
     }
 
-    // ── session management ─────────────────────────────────────────────
+    // ── session ──
 
-    /// Create a new input session.
-    ///
-    /// Returns `None` if librime failed to allocate a session.
     pub fn create_session(&self) -> RimeResult<Session> {
-        self.check_initialized()?;
-        unsafe {
-            match raw::create_session() {
-                Some(id) => Ok(Session::new(id)),
-                None => Err(RimeError::SessionFailed(0)),
-            }
-        }
+        let api = self.api()?;
+        unsafe { raw::create_session(api).map(Session::new).ok_or(RimeError::SessionFailed(0)) }
     }
 
-    /// Check whether a session ID is still valid.
     pub fn find_session(&self, session: &Session) -> bool {
-        unsafe { raw::find_session(session.id()) }
+        self.api().map(|api| unsafe { raw::find_session(api, session.id()) }).unwrap_or(false)
     }
 
-    // ── key processing ─────────────────────────────────────────────────
+    // ── key processing ──
 
-    /// Process a key event within a session.
-    ///
-    /// Returns `Handled` if the engine consumed the key (composition updated,
-    /// candidates changed, etc.) or `Passthrough` if the key should be
-    /// forwarded to the application.
-    pub fn process_key(
-        &self,
-        session: &Session,
-        keycode: u32,
-        modifiers: Modifiers,
-    ) -> KeyProcessResult {
-        let handled = unsafe { raw::process_key(session.id(), keycode as i32, modifiers.bits() as i32) };
-        if handled {
-            KeyProcessResult::Handled
-        } else {
-            KeyProcessResult::Passthrough
-        }
+    pub fn process_key(&self, session: &Session, keycode: u32, modifiers: Modifiers) -> KeyProcessResult {
+        let ok = self.api().map(|api| unsafe { raw::process_key(api, session.id(), keycode as i32, modifiers.bits() as i32) }).unwrap_or(false);
+        if ok { KeyProcessResult::Handled } else { KeyProcessResult::Passthrough }
     }
 
-    /// Commit the current composition text.
     pub fn commit_composition(&self, session: &Session) {
-        unsafe { raw::commit_composition(session.id()) }
+        if let Ok(api) = self.api() { unsafe { raw::commit_composition(api, session.id()) } }
     }
 
-    /// Clear the current composition without committing.
     pub fn clear_composition(&self, session: &Session) {
-        unsafe { raw::clear_composition(session.id()) }
+        if let Ok(api) = self.api() { unsafe { raw::clear_composition(api, session.id()) } }
     }
 
-    // ── context / commit / status ──────────────────────────────────────
+    // ── context ──
 
-    /// Get the current context including preedit and candidates.
-    ///
-    /// Returns `None` if there is no active composition.
     pub fn get_context(&self, session: &Session) -> RimeResult<Option<SessionContext>> {
-        self.check_initialized()?;
+        let api = self.api()?;
         unsafe {
-            let mut ctx = match raw::get_context(session.id())? {
-                Some(c) => c,
-                None => return Ok(None),
+            let mut ctx = match raw::get_context(api, session.id())? {
+                Some(c) => c, None => return Ok(None),
             };
-
-            // Copy strings out before freeing.
             let preedit = raw::cstr_to_owned(ctx.composition.preedit);
             let candidates = Self::extract_candidates(&ctx.composition.cand);
             let commit_preview = raw::cstr_to_owned(ctx.commit_text_preview);
-
-            raw::free_context(&mut ctx);
-
+            raw::free_context(api, &mut ctx);
             Ok(Some(SessionContext {
-                preedit,
-                cursor_pos: ctx.composition.cursor_pos as usize,
-                select_labels: ctx.select_label_count,
-                commit_text_preview: commit_preview,
-                candidates,
+                preedit, cursor_pos: ctx.composition.cursor_pos as usize,
+                select_labels: ctx.select_label_count, commit_text_preview: commit_preview, candidates,
             }))
         }
     }
 
-    /// Get the latest committed text.
     pub fn get_commit(&self, session: &Session) -> RimeResult<Option<CommitText>> {
-        self.check_initialized()?;
+        let api = self.api()?;
         unsafe {
-            let mut commit = match raw::get_commit(session.id())? {
-                Some(c) => c,
-                None => return Ok(None),
-            };
-
+            let mut commit = match raw::get_commit(api, session.id())? { Some(c) => c, None => return Ok(None) };
             let text = raw::cstr_to_owned(commit.text).unwrap_or_default();
-            raw::free_commit(&mut commit);
+            raw::free_commit(api, &mut commit);
             Ok(Some(CommitText { text }))
         }
     }
 
-    /// Get the current engine status for a session.
     pub fn get_status(&self, session: &Session) -> RimeResult<Option<SessionStatus>> {
-        self.check_initialized()?;
+        let api = self.api()?;
         unsafe {
-            let mut status = match raw::get_status(session.id())? {
-                Some(s) => s,
-                None => return Ok(None),
-            };
-
+            let mut status = match raw::get_status(api, session.id())? { Some(s) => s, None => return Ok(None) };
             let schema_id = raw::cstr_to_owned(status.schema_id).unwrap_or_default();
             let schema_name = raw::cstr_to_owned(status.schema_name).unwrap_or_default();
-
-            raw::free_status(&mut status);
-
+            raw::free_status(api, &mut status);
             Ok(Some(SessionStatus {
-                schema_id,
-                schema_name,
-                is_composing: status.is_composing,
-                is_ascii_mode: status.is_ascii_mode,
-                is_full_shape: status.is_full_shape,
-                is_simplified: status.is_simplified,
+                schema_id, schema_name,
+                is_composing: status.is_composing, is_ascii_mode: status.is_ascii_mode,
+                is_full_shape: status.is_full_shape, is_simplified: status.is_simplified,
                 is_disabled: status.is_disabled,
             }))
         }
     }
 
-    // ── candidates ─────────────────────────────────────────────────────
+    // ── candidates ──
 
-    /// Select a candidate at the given index in the current page.
     pub fn select_candidate(&self, session: &Session, index: u32) -> bool {
-        unsafe { raw::select_candidate(session.id(), index as i32) }
+        self.api().map(|api| unsafe { raw::select_candidate(api, session.id(), index as i32) }).unwrap_or(false)
     }
 
-    /// Get the full candidate list for a session.
     pub fn get_candidates(&self, session: &Session) -> RimeResult<Option<CandidateList>> {
-        self.check_initialized()?;
+        let api = self.api()?;
         unsafe {
-            let mut ctx = match raw::get_context(session.id())? {
-                Some(c) => c,
-                None => return Ok(None),
-            };
-
+            let mut ctx = match raw::get_context(api, session.id())? { Some(c) => c, None => return Ok(None) };
             let list = Self::extract_candidates(&ctx.composition.cand);
-            let page_no = ctx.composition.cand.page_no as u32;
-            let page_size = ctx.composition.cand.page_size as u32;
-            let is_last = ctx.composition.cand.is_last_page;
-
-            raw::free_context(&mut ctx);
-
+            let (page_no, page_size, is_last) = (ctx.composition.cand.page_no as u32, ctx.composition.cand.page_size as u32, ctx.composition.cand.is_last_page);
+            raw::free_context(api, &mut ctx);
             Ok(Some(CandidateList::new(list, page_no, page_size, is_last)))
         }
     }
 
-    /// Extract candidate entries from a raw RimeCandidateList.
-    fn extract_candidates(raw: &ffi::RimeCandidateList) -> Vec<Candidate> {
-        if raw.candidates.is_null() || raw.length <= 0 {
-            return Vec::new();
-        }
-
-        let mut out = Vec::with_capacity(raw.length as usize);
-        for i in 0..raw.length as isize {
+    fn extract_candidates(raw_list: &crate::ffi::RimeCandidateList) -> Vec<Candidate> {
+        if raw_list.candidates.is_null() || raw_list.length <= 0 { return Vec::new(); }
+        let mut out = Vec::with_capacity(raw_list.length as usize);
+        for i in 0..raw_list.length as isize {
             unsafe {
-                let cand = &*raw.candidates.offset(i);
+                let cand = &*raw_list.candidates.offset(i);
                 out.push(Candidate {
                     text: raw::cstr_to_owned(cand.text).unwrap_or_default(),
                     comment: raw::cstr_to_owned(cand.comment).unwrap_or_default(),
-                    index: (raw.candidate_index + i as i32) as u32,
+                    index: (raw_list.candidate_index + i as i32) as u32,
                     quality: 0.0,
                 });
             }
@@ -283,119 +193,67 @@ impl Engine {
         out
     }
 
-    // ── options ────────────────────────────────────────────────────────
+    // ── options ──
 
-    /// Set a boolean option on the session (e.g. `"ascii_mode"`, `"simplification"`).
     pub fn set_option(&self, session: &Session, option: &str, value: bool) -> RimeResult<bool> {
-        self.check_initialized()?;
-        unsafe { raw::set_option(session.id(), option, value) }
+        unsafe { raw::set_option(self.api()?, session.id(), option, value) }
     }
-
-    /// Get a boolean option value from the session.
     pub fn get_option(&self, session: &Session, option: &str) -> RimeResult<bool> {
-        self.check_initialized()?;
-        unsafe { raw::get_option(session.id(), option) }
+        unsafe { raw::get_option(self.api()?, session.id(), option) }
     }
 
-    // ── schema ─────────────────────────────────────────────────────────
+    // ── schema ──
 
-    /// List all installed schemas.
     pub fn get_schema_list(&self) -> RimeResult<Vec<SchemaInfo>> {
-        self.check_initialized()?;
+        let api = self.api()?;
         unsafe {
-            let mut list = match raw::get_schema_list()? {
-                Some(l) => l,
-                None => return Ok(Vec::new()),
-            };
-
+            let mut list = match raw::get_schema_list(api)? { Some(l) => l, None => return Ok(Vec::new()) };
             let mut out = Vec::with_capacity(list.length as usize);
             for i in 0..list.length as isize {
-                
-                    let item = &*list.schemas.offset(i);
-                    out.push(SchemaInfo::new(
-                        raw::cstr_to_owned(item.schema.schema_id).unwrap_or_default(),
-                        raw::cstr_to_owned(item.schema.name).unwrap_or_default(),
-                    ));
-                
+                let item = &*list.schemas.offset(i);
+                out.push(SchemaInfo::new(
+                    raw::cstr_to_owned(item.schema.schema_id).unwrap_or_default(),
+                    raw::cstr_to_owned(item.schema.name).unwrap_or_default(),
+                ));
             }
-            raw::free_schema_list(&mut list);
+            raw::free_schema_list(api, &mut list);
             Ok(out)
         }
     }
 
-    /// Switch the active schema for a session.
     pub fn select_schema(&self, session: &Session, schema_id: &str) -> RimeResult<bool> {
-        self.check_initialized()?;
-        unsafe { raw::select_schema(session.id(), schema_id) }
+        unsafe { raw::select_schema(self.api()?, session.id(), schema_id) }
     }
 
-    /// Get the currently active schema for a session.
     pub fn current_schema(&self, session: &Session) -> RimeResult<Option<String>> {
-        self.check_initialized()?;
+        let api = self.api()?;
         unsafe {
-            let schema = match raw::current_schema(session.id())? {
-                Some(s) => s,
-                None => return Ok(None),
-            };
-            let name = raw::cstr_to_owned(schema.name).unwrap_or_default();
-            Ok(Some(name))
-        }
-    }
-
-    // ── internal helpers ───────────────────────────────────────────────
-
-    fn check_initialized(&self) -> RimeResult<()> {
-        if !self.initialized {
-            Err(RimeError::NotInitialized)
-        } else {
-            Ok(())
+            let s = match raw::current_schema(api, session.id())? { Some(s) => s, None => return Ok(None) };
+            Ok(Some(raw::cstr_to_owned(s.name).unwrap_or_default()))
         }
     }
 }
 
-impl Default for Engine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl Default for Engine { fn default() -> Self { Self::new() } }
+impl Drop for Engine { fn drop(&mut self) { self.finalize(); } }
 
-impl Drop for Engine {
-    fn drop(&mut self) {
-        self.finalize();
-    }
-}
+// ── Data types ──
 
-// ── Data types returned by the safe API ─────────────────────────────────────
-
-/// Snapshot of a session's context (preedit + candidates + preview).
 #[derive(Debug, Clone)]
 pub struct SessionContext {
-    /// Preedit / composition text, if any.
     pub preedit: Option<String>,
-    /// Cursor position within the preedit.
     pub cursor_pos: usize,
-    /// Number of select-label keys for the current page.
     pub select_labels: i32,
-    /// Text that will be committed when the composition ends.
     pub commit_text_preview: Option<String>,
-    /// Current page of candidates.
     pub candidates: Vec<Candidate>,
 }
 
-/// Text committed by the engine.
 #[derive(Debug, Clone)]
-pub struct CommitText {
-    pub text: String,
-}
+pub struct CommitText { pub text: String }
 
-/// Snapshot of a session's status flags.
 #[derive(Debug, Clone)]
 pub struct SessionStatus {
-    pub schema_id: String,
-    pub schema_name: String,
-    pub is_composing: bool,
-    pub is_ascii_mode: bool,
-    pub is_full_shape: bool,
-    pub is_simplified: bool,
-    pub is_disabled: bool,
+    pub schema_id: String, pub schema_name: String,
+    pub is_composing: bool, pub is_ascii_mode: bool,
+    pub is_full_shape: bool, pub is_simplified: bool, pub is_disabled: bool,
 }
