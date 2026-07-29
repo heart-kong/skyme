@@ -92,6 +92,12 @@ impl Engine {
     pub fn rime_free_commit_fn(&self) -> Option<usize> {
         self.api.as_ref().map(|api| api.RimeFreeCommit as usize)
     }
+    pub fn rime_get_context_fn(&self) -> Option<usize> {
+        self.api.as_ref().map(|api| api.RimeGetContext as usize)
+    }
+    pub fn rime_free_context_fn(&self) -> Option<usize> {
+        self.api.as_ref().map(|api| api.RimeFreeContext as usize)
+    }
 
     fn api(&self) -> RimeResult<&RimeApi> {
         self.api.as_deref().ok_or(RimeError::NotInitialized)
