@@ -19,3 +19,21 @@ impl SchemaInfo {
 pub struct ActiveSchema {
     pub info: SchemaInfo,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::schema::SchemaInfo;
+
+    #[test]
+    fn test_schema_info() {
+        let s = SchemaInfo::new("luna_pinyin", "朙月拼音");
+        assert_eq!(s.schema_id, "luna_pinyin");
+        assert_eq!(s.name, "朙月拼音");
+    }
+
+    #[test]
+    fn test_schema_info_from_string() {
+        let s = SchemaInfo::new(String::from("terra_pinyin"), String::from("地球拼音"));
+        assert_eq!(s.schema_id, "terra_pinyin");
+    }
+}

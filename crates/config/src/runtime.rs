@@ -75,3 +75,77 @@ impl Default for RuntimeConfig {
         Self { display_mode: DisplayMode::Floating, auto_show: true, page_size: 5, max_composition_length: 64 }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::runtime::*;
+    use skyme_common::DisplayMode;
+
+    #[test]
+    fn test_runtime_config_default() {
+        let c = RuntimeConfig::default();
+        assert_eq!(c.display_mode, DisplayMode::Floating);
+        assert!(c.auto_show);
+        assert_eq!(c.page_size, 5);
+        assert_eq!(c.max_composition_length, 64);
+    }
+
+    #[test]
+    fn test_ui_config_file_default() {
+        let u = UiConfigFile::default();
+        assert_eq!(u.display_mode, "floating");
+        assert_eq!(u.page_size, 5);
+        assert!(u.auto_show);
+    }
+
+    #[test]
+    fn test_to_runtime_floating() {
+        let u = UiConfigFile { display_mode: "floating".into(), ..UiConfigFile::default() };
+        let r = u.to_runtime();
+        assert_eq!(r.display_mode, DisplayMode::Floating);
+    }
+
+    #[test]
+    fn test_to_runtime_inline() {
+        let u = UiConfigFile { display_mode: "inline".into(), ..UiConfigFile::default() };
+        let r = u.to_runtime();
+        assert_eq!(r.display_mode, DisplayMode::Inline);
+    }
+
+    #[test]
+    fn test_to_runtime_dock() {
+        let u = UiConfigFile { display_mode: "dock".into(), ..UiConfigFile::default() };
+        let r = u.to_runtime();
+        assert_eq!(r.display_mode, DisplayMode::Dock);
+    }
+
+    #[test]
+    fn test_to_runtime_classic() {
+        let u = UiConfigFile { display_mode: "classic".into(), ..UiConfigFile::default() };
+        let r = u.to_runtime();
+        assert_eq!(r.display_mode, DisplayMode::Classic);
+    }
+
+    #[test]
+    fn test_to_runtime_unknown_mode() {
+        let u = UiConfigFile { display_mode: "unknown".into(), ..UiConfigFile::default() };
+        let r = u.to_runtime();
+        assert_eq!(r.display_mode, DisplayMode::Floating); // falls back
+    }
+
+    #[test]
+    fn test_ui_config_custom_values() {
+        let u = UiConfigFile {
+            display_mode: "inline".into(),
+            page_size: 9,
+            font_scale: 1.2,
+            auto_show: false,
+            max_composition_length: 32,
+        };
+        let r = u.to_runtime();
+        assert_eq!(r.display_mode, DisplayMode::Inline);
+        assert_eq!(r.page_size, 9);
+        assert!(!r.auto_show);
+        assert_eq!(r.max_composition_length, 32);
+    }
+}

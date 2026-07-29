@@ -34,3 +34,38 @@ impl CandidateList {
         self.candidates.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::candidate::CandidateList;
+    use skyme_common::Candidate;
+
+    #[test]
+    fn test_candidate_list_empty() {
+        let list = CandidateList::new(vec![], 0, 5, true);
+        assert!(list.is_empty());
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn test_candidate_list_with_items() {
+        let candidates = vec![
+            Candidate { text: "中".into(), comment: "zhong1".into(), index: 0, quality: 0.9 },
+            Candidate { text: "国".into(), comment: "guo2".into(), index: 1, quality: 0.8 },
+        ];
+        let list = CandidateList::new(candidates.clone(), 0, 5, false);
+        assert!(!list.is_empty());
+        assert_eq!(list.len(), 2);
+        assert!(!list.is_last_page);
+        assert_eq!(list.page, 0);
+        assert_eq!(list.page_size, 5);
+    }
+
+    #[test]
+    fn test_candidate_list_page() {
+        let list = CandidateList::new(vec![], 1, 5, true);
+        assert_eq!(list.page, 1);
+        assert_eq!(list.page_size, 5);
+        assert!(list.is_last_page);
+    }
+}

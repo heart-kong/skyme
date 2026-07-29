@@ -44,3 +44,75 @@ impl From<NulError> for RimeError { fn from(e: NulError) -> Self { RimeError::Nu
 impl From<std::str::Utf8Error> for RimeError { fn from(e: std::str::Utf8Error) -> Self { RimeError::InvalidUtf8(e) } }
 
 pub type RimeResult<T> = Result<T, RimeError>;
+
+#[cfg(test)]
+mod tests {
+    use crate::error::*;
+
+    #[test]
+    fn test_error_display() {
+        let e = RimeError::NotInitialized;
+        assert_eq!(format!("{}", e), "Rime engine not initialized");
+    }
+
+    #[test]
+    fn test_initialize_failed() {
+        let e = RimeError::InitializeFailed;
+        assert_eq!(format!("{}", e), "RimeInitialize returned false");
+    }
+
+    #[test]
+    fn test_session_failed() {
+        let e = RimeError::SessionFailed(42);
+        assert_eq!(format!("{}", e), "Session 42 operation failed");
+    }
+
+    #[test]
+    fn test_api_call_failed() {
+        let e = RimeError::ApiCallFailed("RimeProcessKey");
+        assert_eq!(format!("{}", e), "Rime API call failed: RimeProcessKey");
+    }
+
+    #[test]
+    fn test_nul_error() {
+        use std::ffi::CString;
+        let result = CString::new("hello\0world");
+        assert!(result.is_err());
+        let e = RimeError::from(result.unwrap_err());
+        assert!(format!("{}", e).contains("NUL"));
+    }
+
+    #[test]
+    fn test_library_load_failed() {
+        let e = RimeError::LibraryLoadFailed("cannot find library".into());
+        assert!(format!("{}", e).contains("cannot find library"));
+    }
+
+    #[test]
+    fn test_deploy_failed() {
+        let e = RimeError::DeployFailed("timeout".into());
+        assert_eq!(format!("{}", e), "Deployment failed: timeout");
+    }
+
+    #[test]
+    fn test_utf8_error() {
+        let invalid = &[0xFF, 0xFE, 0x00];
+        let result = std::str::from_utf8(invalid);
+        assert!(result.is_err());
+        let e = RimeError::from(result.unwrap_err());
+        assert!(format!("{}", e).contains("UTF-8"));
+    }
+
+    #[test]
+    fn test_error_is_std_error() {
+        use std::error::Error;
+        let e = RimeError::NotInitialized;
+        let _: &dyn Error = &e;
+    }
+
+    #[test]
+    fn test_result_alias() {
+        let r: RimeResult<i32> = Ok(42);
+        assert_eq!(r.unwrap(), 42);
+    }
+}

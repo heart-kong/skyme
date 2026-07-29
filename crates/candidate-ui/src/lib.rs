@@ -69,3 +69,125 @@ pub(crate) mod layout {
     pub fn hover_bg() -> Color { Color::from_rgba8(60, 64, 67, 255) }
     pub fn selected_bg() -> Color { Color::from_rgba8(138, 180, 248, 30) }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::layout;
+    use crate::*;
+    use skyme_common::{Candidate, DisplayMode, Rect};
+    use skyme_renderer::NullRenderer;
+
+    #[test]
+    fn test_layout_constants() {
+        assert!(layout::PADDING > 0.0);
+        assert!(layout::CORNER_RADIUS > 0.0);
+    }
+
+    #[test]
+    fn test_floating_measure_empty() {
+        let r = FloatingRenderer::new();
+        let rect = r.measure(&[], DisplayMode::Floating);
+        assert_eq!(rect.width, 0.0);
+        assert_eq!(rect.height, 0.0);
+    }
+
+    #[test]
+    fn test_floating_measure_with_candidates() {
+        let r = FloatingRenderer::new();
+        let candidates = vec![Candidate { text: "测试".into(), comment: "test".into(), index: 0, quality: 1.0 }];
+        let rect = r.measure(&candidates, DisplayMode::Floating);
+        assert!(rect.width > 0.0);
+        assert!(rect.height > 0.0);
+    }
+
+    #[test]
+    fn test_floating_render_no_crash() {
+        let mut r = FloatingRenderer::new();
+        let mut renderer = NullRenderer::new();
+        r.render(&mut renderer, &[], DisplayMode::Floating, &Rect::default());
+    }
+
+    #[test]
+    fn test_floating_render_with_candidates() {
+        let mut r = FloatingRenderer::new();
+        let mut renderer = NullRenderer::new();
+        let candidates = vec![
+            Candidate { text: "中".into(), comment: "zhong".into(), index: 0, quality: 0.9 },
+            Candidate { text: "国".into(), comment: "guo".into(), index: 1, quality: 0.8 },
+        ];
+        r.set_selected(0);
+        r.render(&mut renderer, &candidates, DisplayMode::Floating, &Rect { x: 0.0, y: 0.0, width: 800.0, height: 600.0 });
+    }
+
+    #[test]
+    fn test_classic_measure() {
+        let r = ClassicRenderer::new();
+        let candidates = vec![Candidate { text: "hello".into(), comment: "".into(), index: 0, quality: 1.0 }];
+        let rect = r.measure(&candidates, DisplayMode::Classic);
+        assert!(rect.width > 0.0);
+    }
+
+    #[test]
+    fn test_classic_render() {
+        let mut r = ClassicRenderer::new();
+        let mut renderer = NullRenderer::new();
+        let candidates = vec![
+            Candidate { text: "你好".into(), comment: "hello".into(), index: 0, quality: 1.0 },
+        ];
+        r.render(&mut renderer, &candidates, DisplayMode::Classic, &Rect::default());
+    }
+
+    #[test]
+    fn test_dock_measure() {
+        let r = DockRenderer::new();
+        let candidates = vec![Candidate { text: "test".into(), comment: "".into(), index: 0, quality: 1.0 }];
+        let rect = r.measure(&candidates, DisplayMode::Dock);
+        assert!(rect.height == 48.0);
+    }
+
+    #[test]
+    fn test_dock_render() {
+        let mut r = DockRenderer::new();
+        let mut renderer = NullRenderer::new();
+        let candidates = vec![
+            Candidate { text: "中".into(), comment: "".into(), index: 0, quality: 0.9 },
+            Candidate { text: "国".into(), comment: "".into(), index: 1, quality: 0.8 },
+        ];
+        let viewport = Rect { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 };
+        r.render(&mut renderer, &candidates, DisplayMode::Dock, &viewport);
+    }
+
+    #[test]
+    fn test_inline_presenter() {
+        let mut p = YumeInlinePresenter::new();
+        p.begin("ni", 2);
+        p.update("nihao", &[Candidate { text: "你好".into(), comment: "".into(), index: 0, quality: 1.0 }], 5);
+        let text = p.commit();
+        assert!(text.contains("nihao"));
+        assert!(text.contains("你好") || text.contains('①'));
+    }
+
+    #[test]
+    fn test_inline_presenter_cancel() {
+        let mut p = YumeInlinePresenter::new();
+        p.begin("test", 4);
+        p.cancel();
+        let text = p.commit();
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn test_inline_empty_candidates() {
+        let mut p = YumeInlinePresenter::new();
+        p.begin("hello", 5);
+        p.update("hello", &[], 5);
+        let text = p.commit();
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn test_display_mode_enum() {
+        assert_ne!(DisplayMode::Floating as u8, DisplayMode::Inline as u8);
+        assert_ne!(DisplayMode::Dock as u8, DisplayMode::Classic as u8);
+    }
+}
