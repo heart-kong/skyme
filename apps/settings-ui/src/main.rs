@@ -1,13 +1,18 @@
-/// Skyme Settings UI — standalone configuration application.
-///
-/// Provides a modern GUI for configuring the input method:
-/// - Theme and appearance
-/// - Schema selection and ordering
-/// - Key binding customisation
-/// - Plugin management
-///
-/// This is a separate process from the IME service.
+//! Skyme Settings UI — standalone configuration application.
+//!
+//! Native Win32 dialog for configuring the input method.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+mod dialog;
+
 fn main() {
+    env_logger::init();
     log::info!("Skyme Settings UI starting");
-    log::info!("Skyme Settings UI shutting down");
+
+    #[cfg(target_os = "windows")]
+    dialog::run_settings_dialog();
+
+    #[cfg(not(target_os = "windows"))]
+    log::info!("Settings UI requires Windows");
 }
