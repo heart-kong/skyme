@@ -27,7 +27,7 @@ unsafe extern "system" fn release(this: *mut ComObj) -> u32 {
 }
 unsafe extern "system" fn create_instance(_this: *mut ComObj, outer: *mut ComObj, riid: *const GUID, ppv: *mut *mut std::ffi::c_void) -> i32 {
     if !outer.is_null() { return -2146969328; }
-    let obj = super::text_service::new_service();
+    let obj = super::text_service::new_text_service();
     let raw = Box::into_raw(obj);
     let result = qi(raw, riid, ppv);
     release(raw);

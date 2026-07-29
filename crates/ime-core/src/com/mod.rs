@@ -6,7 +6,7 @@ pub mod class_factory;
 pub mod text_service;
 
 pub use class_factory::class_factory;
-pub use text_service::new_service;
+pub use text_service::new_text_service;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
