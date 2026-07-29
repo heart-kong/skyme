@@ -165,7 +165,7 @@ unsafe extern "system" fn es_des(this: *mut EsObj, ec: u32) -> i32 {
             insert_text(ctx, ec, t);
         }
         // 2. End composition if any
-        end_composition();
+        end_composition(ec);
         return 0;
     }
 
@@ -182,7 +182,7 @@ unsafe extern "system" fn es_des(this: *mut EsObj, ec: u32) -> i32 {
         }
     } else {
         // No preedit, no commit — end composition if active
-        end_composition();
+        end_composition(ec);
     }
     0
 }
@@ -234,7 +234,7 @@ unsafe fn set_comp_text(ctx: *mut ComObj, ec: u32, text: &[u16]) {
     }
 }
 
-unsafe fn end_composition() {
+unsafe fn end_composition(ec: u32) {
     let ptr = COMP_PTR.swap(0, Ordering::SeqCst) as *mut ComObj;
     if ptr.is_null() { return; }
     // ITfComposition::EndComposition @ idx 6
@@ -249,6 +249,28 @@ unsafe fn end_composition() {
     release_com(ptr as *mut std::ffi::c_void);
 }
 
+unsafe fn set_display_attr(ctx: *mut ComObj, ec: u32, range: *mut ComObj) {
+    // Set GUID_PROP_ATTRIBUTE on the range to apply IME input underline.
+    // ITfContext::GetProperty is at vtable index 12.
+    #[repr(C)] struct CtxV3 { _pad: [usize; 12], GetProp: unsafe extern "system" fn(*mut ComObj, *const GUID, *mut *mut std::ffi::c_void) -> i32 }
+    let cv = *(ctx as *mut *const CtxV3);
+    let iid_prop_attr = GUID { data1: 0x48FDDAE9, data2: 0xC89B, data3: 0x4C97, data4: [0x9D, 0x3C, 0x7A, 0x4E, 0x08, 0xC0, 0xC0, 0xD8] };
+    let mut prop: *mut std::ffi::c_void = std::ptr::null_mut();
+    let hr = ((*cv).GetProp)(ctx, &iid_prop_attr as *const GUID, &mut prop);
+    if hr != 0 || prop.is_null() { return; }
+    // ITfProperty::SetValue at vtable index 5
+    // Signature: fn(ec: u32, range: *mut ComObj, var: *mut VARIANT) -> i32
+    #[repr(C)] struct PropVtbl { _pad: [usize; 5], SetVal: unsafe extern "system" fn(*mut std::ffi::c_void, u32, *mut ComObj, *mut std::ffi::c_void) -> i32 }
+    let pv = *(prop as *mut *const PropVtbl);
+    // Use GUID_ATTR_INPUT atom: {A4783E6E-903C-4F5B-8C0E-8A41B7AF4E4D}
+    let attr_input = GUID { data1: 0xA4783E6E, data2: 0x903C, data3: 0x4F5B, data4: [0x8C, 0x0E, 0x8A, 0x41, 0xB7, 0xAF, 0x4E, 0x4D] };
+    // Pass the GUID as a plain value (VT_UNKNOWN style — simplified)
+    let r = ((*pv).SetVal)(prop, ec, range, &attr_input as *const GUID as *mut std::ffi::c_void);
+    if r != 0 { log::warn!("SetValue attr failed: {}", r); }
+    let obj = prop as *mut ComObj; ((*obj).lpVtbl.as_ref().unwrap().Release)(obj);
+    log::info!("Display attribute set on composition range");
+}
+
 unsafe fn set_range_text(range: *mut ComObj, ec: u32, text: &[u16]) {
     // ITfRange::SetText @ idx depends on interface
     // The standard ITfRange has SetText at a specific index. Let me try index 8.
@@ -260,7 +282,7 @@ unsafe fn set_range_text(range: *mut ComObj, ec: u32, text: &[u16]) {
     // Try calling SetText — common vtable position
     #[repr(C)] struct RV { _pad: [usize; 4], SetText: unsafe extern "system" fn(*mut ComObj, u32, u32, *const u16, i32) -> i32 }
     let rv = *(range as *mut *const RV);
-    let r = ((*rv).SetText)(range, ec, 0, text.as_ptr(), text.len() as i32);
+    let r = ((*rv).SetText)(range, ec, 1, text.as_ptr(), text.len() as i32);
     if r != 0 { log::error!("SetText failed: {}", r); }
 }
 
