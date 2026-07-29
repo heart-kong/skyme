@@ -12,10 +12,12 @@
 pub mod floating;
 pub mod inline;
 pub mod classic;
+pub mod dock;
 
 pub use floating::FloatingRenderer;
 pub use inline::YumeInlinePresenter;
 pub use classic::ClassicRenderer;
+pub use dock::DockRenderer;
 
 use skyme_common::{Candidate, DisplayMode, Rect};
 use skyme_renderer::Renderer;
