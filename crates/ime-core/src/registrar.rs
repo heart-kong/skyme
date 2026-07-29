@@ -1,43 +1,40 @@
-//! COM registration and unregistration for the Skyme TSF text service.
-//!
-//! Handles DllRegisterServer / DllUnregisterServer logic.
+use crate::com::SKYME_CLSID_S;
 
-/// Handles CLSID and profile registration with TSF.
 pub struct ClsidRegistrar;
+impl ClsidRegistrar { pub fn new() -> Self { Self } }
+impl Default for ClsidRegistrar { fn default() -> Self { Self::new() } }
 
+#[cfg(target_os = "windows")]
 impl ClsidRegistrar {
-    pub fn new() -> Self { Self }
-
-    /// Register the text service with Windows TSF.
-    /// This would call `ITfCategoryMgr::RegisterCategory` and
-    /// `ITfInputProcessorProfileMgr::RegisterProfile`.
-    #[cfg(target_os = "windows")]
-    pub fn register(&self) -> Result<(), String> {
+    pub fn register(&self) -> i32 {
         log::info!("Registering Skyme TSF text service");
-        // TODO: Real COM registration:
-        // 1. Register CLSID in registry
-        // 2. ITfCategoryMgr::RegisterCategory for GUID_TFCAT_TIP_KEYBOARD
-        // 3. ITfInputProcessorProfileMgr::RegisterProfile
-        Ok(())
+        let c = format!("{{{}}}", SKYME_CLSID_S);
+        let b = format!(r"HKLM\SOFTWARE\Classes\CLSID\{}", c);
+        let r1 = reg_add(&b, &["/ve", "/t", "REG_SZ", "/d", "Skyme Input Method"]);
+        let r2 = reg_add(&format!(r"{}\InprocServer32", b), &["/ve", "/t", "REG_SZ", "/d", "skyme_ime_service.dll"]);
+        let r3 = reg_add(&format!(r"{}\InprocServer32", b), &["/v", "ThreadingModel", "/t", "REG_SZ", "/d", "Apartment"]);
+        r1.max(r2).max(r3)
     }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn register(&self) -> Result<(), String> {
-        log::info!("Skyme TSF registration: stub (non-Windows)");
-        Ok(())
-    }
-
-    /// Unregister the text service.
-    #[cfg(target_os = "windows")]
-    pub fn unregister(&self) -> Result<(), String> {
-        log::info!("Unregistering Skyme TSF text service");
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn unregister(&self) -> Result<(), String> {
-        Ok(())
+    pub fn unregister(&self) -> i32 {
+        let c = format!("{{{}}}", SKYME_CLSID_S);
+        let b = format!(r"HKLM\SOFTWARE\Classes\CLSID\{}", c);
+        let _ = std::process::Command::new("reg").args(&["delete", &b, "/f"]).output();
+        0
     }
 }
 
-impl Default for ClsidRegistrar { fn default() -> Self { Self::new() } }
+#[cfg(not(target_os = "windows"))]
+impl ClsidRegistrar { pub fn register(&self) -> i32 { 0 } pub fn unregister(&self) -> i32 { 0 } }
+
+#[cfg(target_os = "windows")]
+fn reg_add(key: &str, args: &[&str]) -> i32 {
+    let mut cmd = std::process::Command::new("reg");
+    cmd.arg("add").arg(key);
+    for a in args { cmd.arg(a); }
+    cmd.arg("/f");
+    match cmd.output() {
+        Ok(out) if out.status.success() => { log::info!("reg add: {} OK", key); 0 }
+        Ok(out) => { log::error!("reg add failed: {} {}", key, String::from_utf8_lossy(&out.stderr)); 1 }
+        Err(e) => { log::error!("reg add error: {} {}", key, e); 1 }
+    }
+}
