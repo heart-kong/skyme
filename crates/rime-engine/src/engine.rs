@@ -83,9 +83,14 @@ impl Engine {
     }
 
     pub fn is_initialized(&self) -> bool { self.api.is_some() }
-    /// Get a raw pointer to the RimeProcessKey function for COM bridging.
     pub fn rime_process_key_fn(&self) -> Option<usize> {
         self.api.as_ref().map(|api| api.RimeProcessKey as usize)
+    }
+    pub fn rime_get_commit_fn(&self) -> Option<usize> {
+        self.api.as_ref().map(|api| api.RimeGetCommit as usize)
+    }
+    pub fn rime_free_commit_fn(&self) -> Option<usize> {
+        self.api.as_ref().map(|api| api.RimeFreeCommit as usize)
     }
 
     fn api(&self) -> RimeResult<&RimeApi> {

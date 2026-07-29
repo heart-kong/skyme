@@ -17,8 +17,8 @@ impl ImeService {
         engine.initialize(shared_dir, user_dir, dist_name)?;
 
         // Wire RimeProcessKey to the COM key event sink via global statics
-        if let Some(fn_ptr) = engine.rime_process_key_fn() {
-            skyme_ime_core::com::text_service::set_rime_process_key(fn_ptr);
+        if let (Some(pk), Some(gc), Some(fc)) = (engine.rime_process_key_fn(), engine.rime_get_commit_fn(), engine.rime_free_commit_fn()) {
+            skyme_ime_core::com::text_service::set_rime_fns(pk, gc, fc);
         }
         if let Ok(session) = engine.create_session() {
             skyme_ime_core::com::text_service::set_session_id(session.id());
