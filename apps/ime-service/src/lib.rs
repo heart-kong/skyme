@@ -1,7 +1,4 @@
 //! Skyme IME Service — the Windows TSF text service COM DLL.
-//!
-//! COM exports: DllMain, DllRegisterServer, DllUnregisterServer,
-//! DllGetClassObject, DllCanUnloadNow.
 
 use skyme_rime_engine::{Engine, RimeResult};
 use std::sync::Mutex;
@@ -9,20 +6,33 @@ use std::sync::Mutex;
 static SERVICE: Mutex<Option<ImeService>> = Mutex::new(None);
 
 pub struct ImeService {
-    #[allow(dead_code)]
     engine: Engine,
 }
 
 impl ImeService {
     pub fn new() -> Self { Self { engine: Engine::new() } }
+
     pub fn initialize(shared_dir: &str, user_dir: &str, dist_name: &str) -> RimeResult<()> {
         let mut engine = Engine::new();
         engine.initialize(shared_dir, user_dir, dist_name)?;
+
+        // Wire RimeProcessKey to the COM key event sink via global statics
+        if let Some(fn_ptr) = engine.rime_process_key_fn() {
+            skyme_ime_core::com::text_service::set_rime_process_key(fn_ptr);
+        }
+        if let Ok(session) = engine.create_session() {
+            skyme_ime_core::com::text_service::set_session_id(session.id());
+        }
+
         *SERVICE.lock().unwrap() = Some(ImeService { engine });
         log::info!("Skyme IME service initialised");
         Ok(())
     }
-    pub fn shutdown() { *SERVICE.lock().unwrap() = None; log::info!("Skyme IME service shut down"); }
+
+    pub fn shutdown() {
+        *SERVICE.lock().unwrap() = None;
+        log::info!("Skyme IME service shut down");
+    }
 }
 
 // ── COM exports ────────────────────────────────────────────────────────────
@@ -49,4 +59,4 @@ pub extern "system" fn DllGetClassObject(
 }
 
 #[no_mangle]
-pub extern "system" fn DllCanUnloadNow() -> i32 { 1 } // S_FALSE
+pub extern "system" fn DllCanUnloadNow() -> i32 { 1 }
